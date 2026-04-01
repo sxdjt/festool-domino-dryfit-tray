@@ -5,10 +5,10 @@
 // Usage: select a domino variant, set your desired grid size, and print.
 // The tray holds tenons at 30% depth - secure but easy to remove.
 //
-// Optional Gridfinity base: when enabled a spec-compliant Gridfinity base is
-// added underneath the tray body, centred below it. The tray body itself does
-// not change size - no extra whitespace is added around the holes.
-// No external library required.
+// Optional Gridfinity base: adds a spec-compliant Gridfinity base.
+// Optional expand-to-fit: when combined with a Gridfinity base, the tray body
+// grows to fill the full Gridfinity footprint and hole spacing is redistributed
+// evenly so all gaps (edge-to-hole and hole-to-hole) are equal.
 
 /* [Domino Size] */
 // Domino dry fit size to store in this tray
@@ -23,7 +23,7 @@ rows = 4;
 /* [Fit and Clearance] */
 // Extra clearance added to each hole dimension for easy insertion/removal (mm)
 clearance = 0.3;
-// Minimum wall thickness between adjacent holes (mm)
+// Minimum wall thickness between adjacent holes (mm) - used when not expanding
 hole_gap = 3.0;
 
 /* [Tray Structure] */
@@ -45,10 +45,11 @@ show_label = true;
 label_text_size = 0;
 
 /* [Gridfinity] */
-// Add a Gridfinity-compatible base centred under the tray body.
-// The tray body size is unchanged - only the base is added below it.
-// Compatible with standard Gridfinity baseplates. No external library required.
+// Add a Gridfinity-compatible base to the tray.
+// Compatible with standard Gridfinity baseplates. 
 gridfinity_base = false;
+// Expand tray to fill the Gridfinity footprint. Requires gridfinity_base = true.
+gf_expand_to_fit = false;
 
 // --- Domino data table ---
 // Measured from verified 3D models.
@@ -77,35 +78,70 @@ hole_short = d_thickness + clearance; // hole dimension along Y
 hole_long  = d_width     + clearance; // hole dimension along X
 hole_depth = d_length * hole_depth_ratio;
 
-// Center-to-center pitch between holes
+// Center-to-center pitch between holes (default, used when not expanding)
 col_pitch = hole_long  + hole_gap;
 row_pitch = hole_short + hole_gap;
 
-// Tray body dimensions (unchanged whether or not Gridfinity is enabled)
+// Tray body minimum dimensions (sized to the grid with wall_thickness margins)
 tray_width  = 2*wall_thickness + cols*hole_long  + (cols-1)*hole_gap;
 tray_depth  = 2*wall_thickness + rows*hole_short + (rows-1)*hole_gap;
 tray_height = floor_thickness + hole_depth;
 
 // --- Gridfinity base sizing ---
-// Add GF_CLEARANCE before ceiling so the resulting bin size (N*42 - 0.5)
-// is always >= tray body dimension. Without this, a tray_width of 41.6mm
-// would round to 1 unit (41.5mm bin) - smaller than the tray.
-_gf_x   = max(1, ceil((tray_width + GF_CLEARANCE) / GF_PITCH));
-_gf_y   = max(1, ceil((tray_depth + GF_CLEARANCE) / GF_PITCH));
-_gf_w   = _gf_x * GF_PITCH - GF_CLEARANCE;  // actual GF base width
-_gf_d   = _gf_y * GF_PITCH - GF_CLEARANCE;  // actual GF base depth
+// Add GF_CLEARANCE before ceiling so the bin size (N*42 - 0.5) is always
+// >= the tray body dimension.
+_gf_x = max(1, ceil((tray_width + GF_CLEARANCE) / GF_PITCH));
+_gf_y = max(1, ceil((tray_depth + GF_CLEARANCE) / GF_PITCH));
+_gf_w = _gf_x * GF_PITCH - GF_CLEARANCE;  // full GF footprint width
+_gf_d = _gf_y * GF_PITCH - GF_CLEARANCE;  // full GF footprint depth
 
-// Offset to centre the GF base under the tray body.
-// GF base origin is translated by (-_gf_off_x, -_gf_off_y) so it is symmetric
-// around the tray body. The tray body itself stays at (0,0).
-_gf_off_x = (_gf_w - tray_width)  / 2;
-_gf_off_y = (_gf_d - tray_depth) / 2;
+// --- Expand-to-fit ---
+// When active: tray body fills the GF footprint and hole spacing is recalculated
+// so the gap between every pair of adjacent features is equal (edge-to-hole and
+// hole-to-hole). This uses (cols+1) equal gaps across the inner width.
+_do_expand = gridfinity_base && gf_expand_to_fit;
+
+// Actual tray body outer dimensions
+actual_w = _do_expand ? _gf_w : tray_width;
+actual_d = _do_expand ? _gf_d : tray_depth;
+
+// Inner space available for the hole grid (inside wall_thickness margins)
+_inner_w = actual_w - 2*wall_thickness;
+_inner_d = actual_d - 2*wall_thickness;
+
+// Effective gap between holes (and between outermost holes and the inner wall face)
+// When expanding: (cols+1) equal gaps share the space not taken by holes.
+// When not expanding: use hole_gap as-is.
+_eff_col_gap = _do_expand ? (_inner_w - cols*hole_long)  / (cols+1) : hole_gap;
+_eff_row_gap = _do_expand ? (_inner_d - rows*hole_short) / (rows+1) : hole_gap;
+
+// Effective center-to-center pitch
+_eff_col_pitch = hole_long  + _eff_col_gap;
+_eff_row_pitch = hole_short + _eff_row_gap;
+
+// First hole center position within the tray body.
+// When expanding: one gap separates the inner wall face from the first hole edge.
+// When not expanding: first hole edge is flush with the inner wall face (no edge gap).
+_hole_x0 = _do_expand
+    ? wall_thickness + _eff_col_gap + hole_long/2
+    : wall_thickness + hole_long/2;
+_hole_y0 = _do_expand
+    ? wall_thickness + _eff_row_gap + hole_short/2
+    : wall_thickness + hole_short/2;
+
+// GF base offset: centres the base under the tray body (0 when bodies are same size)
+_gf_off_x = _do_expand ? 0 : (_gf_w - tray_width) / 2;
+_gf_off_y = _do_expand ? 0 : (_gf_d - tray_depth) / 2;
 
 // Z offset applied to the tray body and all features above it
 z_base = gridfinity_base ? GF_BASE_H : 0;
 
+// Bottom corner radius for tray body:
+// matches GF_CORNER_R when the body fills the GF footprint for a seamless join
+_body_bottom_r = _do_expand ? GF_CORNER_R : 0;
+
 // --- Label geometry ---
-// Panel on the front face (Y=0) of the tray body, centred horizontally.
+// Panel on the front face (Y=0) of the tray body, centred on actual_w.
 // Sized to the straight-wall zone: above the floor, below the top fillet.
 _label_zone_h = tray_height - fillet_radius - floor_thickness - 1.0;
 _auto_ts      = _label_zone_h * 0.72;
@@ -114,21 +150,24 @@ _label_name   = domino_data[domino_variant][0];
 
 _panel_pad    = _text_size * 0.55;
 _panel_h      = _text_size + 2*_panel_pad;
-_panel_w      = _text_size * 4.5;   // wide enough for longest label ("10x50") with margins
-_panel_depth  = 1.0;                // panel recess depth into wall (mm)
-_text_recess  = 0.4;                // text cut depth below panel floor (mm)
-_panel_cx     = tray_width / 2;
+_panel_w      = _text_size * 4.5;
+_panel_depth  = 1.0;
+_text_recess  = 0.4;
+_panel_cx     = actual_w / 2;   // centred on the actual tray body width
 _panel_bz     = floor_thickness + (_label_zone_h - _panel_h) / 2;
 _panel_cz     = _panel_bz + _panel_h / 2;
 
 // --- Console output ---
 echo(str("Domino: ", _label_name));
-echo(str("Tray body (W x D x H): ", tray_width, " x ", tray_depth, " x ", tray_height, " mm"));
+echo(str("Tray body (W x D x H): ", actual_w, " x ", actual_d, " x ", tray_height, " mm"));
 echo(str("Hole depth: ", hole_depth, " mm  (", hole_depth_ratio*100, "% of tenon length)"));
 echo(str("Grid: ", cols, " cols x ", rows, " rows  =  ", cols*rows, " tenons"));
 if (gridfinity_base) {
     echo(str("Gridfinity base: ", _gf_x, " x ", _gf_y, " units  (", _gf_w, " x ", _gf_d, " mm)"));
     echo(str("Total height (base + tray): ", GF_BASE_H + tray_height, " mm"));
+}
+if (_do_expand) {
+    echo(str("Expand-to-fit: col gap=", _eff_col_gap, "mm  row gap=", _eff_row_gap, "mm"));
 }
 
 // =============================================================================
@@ -153,17 +192,15 @@ module gf_foot() {
     outer = GF_PITCH - GF_CLEARANCE;  // 41.5mm outer size per unit
     r     = GF_CORNER_R;               // 3.75mm corner radius, constant throughout
 
-    // Z levels and corresponding insets from the outer edge
     z0 = 0.00;  s0 = outer - 2*2.95;  // 35.60mm at base
     z1 = 0.80;  s1 = outer - 2*2.15;  // 37.20mm after bottom chamfer
-    z2 = 2.60;  // s2 = s1             // 37.20mm at top of wall
+    z2 = 2.60;                         // top of vertical wall
     z3 = 4.75;  s3 = outer;            // 41.50mm at top (full outer)
 
-    // Inset offset: centres the smaller shape within the outer footprint
-    o0 = (outer - s0) / 2;  // 2.95mm
-    o1 = (outer - s1) / 2;  // 2.15mm
+    o0 = (outer - s0) / 2;  // 2.95mm - inset offset for bottom shape
+    o1 = (outer - s1) / 2;  // 2.15mm - inset offset for mid shape
 
-    // Bottom 45-degree chamfer: z0 to z1
+    // Bottom 45-degree chamfer
     hull() {
         translate([o0, o0, z0])
             linear_extrude(0.01)
@@ -173,12 +210,12 @@ module gf_foot() {
                 rounded_rect_2d(s1, s1, r);
     }
 
-    // Vertical wall: z1 to z2
+    // Vertical wall
     translate([o1, o1, z1])
         linear_extrude(z2 - z1)
             rounded_rect_2d(s1, s1, r);
 
-    // Upper 45-degree chamfer: z2 to z3  (expands to full outer footprint)
+    // Upper 45-degree chamfer (expands to full outer footprint = z-lock)
     hull() {
         translate([o1, o1, z2])
             linear_extrude(0.01)
@@ -199,12 +236,18 @@ module gf_base(gx, gy) {
     }
 }
 
-// Tray body: solid box with rounded top edges and a flat bottom.
-module tray_body(w, d, h, top_r) {
+// Tray body: solid box with rounded top edges.
+// bottom_r > 0: rounded bottom corners - use GF_CORNER_R when the body fills
+//               the GF footprint so the join with the feet is seamless.
+// bottom_r = 0: flat sharp-cornered bottom for printing directly on the bed.
+module tray_body(w, d, h, top_r, bottom_r=0) {
     hull() {
-        // Flat bottom with sharp edges (sits flush on print bed or on GF base)
-        cube([w, d, 0.01]);
-        // Top edge roundover: four corner spheres inset by top_r
+        if (bottom_r > 0) {
+            linear_extrude(0.01)
+                rounded_rect_2d(w, d, bottom_r);
+        } else {
+            cube([w, d, 0.01]);
+        }
         for (cx = [top_r, w-top_r], cy = [top_r, d-top_r]) {
             translate([cx, cy, h-top_r])
                 sphere(r=top_r, $fn=64);
@@ -224,14 +267,10 @@ module oval_hole(long_axis, short_axis, depth) {
 
 // Debossed label panel on the front face (Y=0) of the tray body.
 // z_offset: absolute Z of the tray body floor (= GF_BASE_H when Gridfinity is active).
-// rotate([90,0,0]) orients the text: baseline along +X, height along +Z,
-// readable from outside (looking in the +Y direction).
 module label_panel(z_offset=0) {
-    // Outer panel recess
     translate([_panel_cx - _panel_w/2, -0.01, _panel_bz + z_offset])
         cube([_panel_w, _panel_depth + 0.01, _panel_h]);
 
-    // Text debossed into the panel floor
     translate([_panel_cx, _panel_depth + _text_recess, _panel_cz + z_offset])
         rotate([90, 0, 0])
             linear_extrude(height = _text_recess + 0.01)
@@ -247,26 +286,28 @@ module label_panel(z_offset=0) {
 // =============================================================================
 difference() {
     union() {
-        // Gridfinity base centred under the tray body.
-        // Offset into negative XY so the tray body remains at origin (0,0).
+        // Gridfinity base.
+        // When not expanding: offset so it is centred under the (smaller) tray body.
+        // When expanding: tray body fills the GF footprint, offset is zero.
         if (gridfinity_base) {
             translate([-_gf_off_x, -_gf_off_y, 0])
                 gf_base(_gf_x, _gf_y);
         }
 
-        // Tray body - always at (0,0,z_base)
+        // Tray body
         translate([0, 0, z_base])
-            tray_body(tray_width, tray_depth, tray_height, fillet_radius);
+            tray_body(actual_w, actual_d, tray_height, fillet_radius,
+                      bottom_r = _body_bottom_r);
     }
 
-    // Grid of oval holes - tenons stand upright, sticking above the tray surface
+    // Grid of oval holes using effective pitch and origin
     for (c = [0:cols-1], r = [0:rows-1]) {
-        x = wall_thickness + hole_long/2  + c * col_pitch;
-        y = wall_thickness + hole_short/2 + r * row_pitch;
+        x = _hole_x0 + c * _eff_col_pitch;
+        y = _hole_y0 + r * _eff_row_pitch;
         translate([x, y, z_base + floor_thickness])
-            oval_hole(hole_long, hole_short, hole_depth + 0.01); // +0.01 avoids z-fighting at floor
+            oval_hole(hole_long, hole_short, hole_depth + 0.01);
     }
 
-    // Optional front-face label on the tray body
+    // Optional front-face label
     if (show_label) label_panel(z_offset = z_base);
 }
