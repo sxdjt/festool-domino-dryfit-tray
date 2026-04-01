@@ -15,21 +15,21 @@
 domino_variant = 0; // [0:4x20, 1:5x30, 2:6x40, 3:8x40, 4:8x50, 5:10x50]
 
 /* [Grid] */
-// Number of columns (along the long axis of the tenon)
+// Columns (along the long axis of the tenon)
 cols = 5;
-// Number of rows
+// Rows
 rows = 4;
 
 /* [Fit and Clearance] */
-// Extra clearance added to each hole dimension for easy insertion/removal (mm)
+// Clearance added to each hole dimension for easy insertion/removal (mm)
 clearance = 0.3;
-// Minimum wall thickness between adjacent holes (mm) - used when not expanding
+// Gap between adjacent holes (mm) - used when not expanding to Gridfinity footprint
 hole_gap = 3.0;
 
 /* [Tray Structure] */
-// Outer wall thickness (mm)
+// Wall thickness (mm)
 wall_thickness = 2.5;
-// Solid floor thickness (mm)
+// Floor thickness (mm)
 floor_thickness = 2.0;
 // Hole depth as a fraction of tenon length (0.30 = 30%)
 hole_depth_ratio = 0.30;
@@ -37,18 +37,17 @@ hole_depth_ratio = 0.30;
 fillet_radius = 2.5;
 
 /* [Label] */
-// Deboss a size label panel on the front face of the tray
+// Deboss a size label on the front face of the tray
 show_label = true;
 // Label text size in mm (0 = auto-fit to available wall height)
-// NOTE: for the 4x20 variant the tray is very short; auto size will be small (~1.8mm).
-//       Increase this value or set show_label = false if the label is not needed.
+// Note: the 4x20 tray is very short; auto size will be small (~1.8mm).
+//       Increase this value or set Show Label = false if the label is not needed.
 label_text_size = 0;
 
 /* [Gridfinity] */
-// Add a Gridfinity-compatible base to the tray.
-// Compatible with standard Gridfinity baseplates. 
+// Add a Gridfinity-compatible base to the tray
 gridfinity_base = false;
-// Expand tray to fill the Gridfinity footprint. Requires gridfinity_base = true.
+// Expand tray to fill the Gridfinity footprint (requires Gridfinity Base = true)
 gf_expand_to_fit = false;
 
 // --- Domino data table ---
@@ -151,8 +150,8 @@ _label_name   = domino_data[domino_variant][0];
 _panel_pad    = _text_size * 0.55;
 _panel_h      = _text_size + 2*_panel_pad;
 _panel_w      = _text_size * 4.5;
-_panel_depth  = 1.0;
-_text_recess  = 0.4;
+_panel_depth  = 0.15;
+_text_recess  = 0.15;
 _panel_cx     = actual_w / 2;   // centred on the actual tray body width
 _panel_bz     = floor_thickness + (_label_zone_h - _panel_h) / 2;
 _panel_cz     = _panel_bz + _panel_h / 2;
