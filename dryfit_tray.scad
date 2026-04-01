@@ -31,6 +31,14 @@ hole_depth_ratio = 0.30;
 // Top edge fillet radius (mm)
 fillet_radius = 2.5;
 
+/* [Label] */
+// Deboss a size label panel on the front face of the tray
+show_label = true;
+// Label text size in mm (0 = auto-fit to available wall height)
+// NOTE: for the 4x20 variant the tray is very short; auto size will be small (~1.8mm).
+//       Increase this value or set show_label = false if the label is not needed.
+label_text_size = 0;
+
 // --- Domino data table ---
 // Measured from verified 3D models.
 // Format: [ label, thickness (short axis, Y), width (long axis, X), length (Z) ]
@@ -61,20 +69,42 @@ tray_width  = 2*wall_thickness + cols*hole_long  + (cols-1)*hole_gap;
 tray_depth  = 2*wall_thickness + rows*hole_short + (rows-1)*hole_gap;
 tray_height = floor_thickness + hole_depth;
 
-echo(str("Domino: ", domino_data[domino_variant][0]));
+// --- Label geometry ---
+// The label panel sits on the front face (Y=0), centred horizontally.
+// Available straight-wall height: below the fillet, above the floor.
+_label_zone_h = tray_height - fillet_radius - floor_thickness - 1.0;
+_auto_ts      = _label_zone_h * 0.72;
+_text_size    = (label_text_size > 0) ? label_text_size : _auto_ts;
+_label_name   = domino_data[domino_variant][0];
+
+// Panel is sized to frame the text with consistent padding.
+// Width is based on the longest possible label ("10x50" = 5 chars) so all
+// trays share the same badge proportions regardless of variant.
+_panel_pad   = _text_size * 0.55;
+_panel_h     = _text_size + 2*_panel_pad;
+_panel_w     = _text_size * 4.5;      // wide enough for 5-char label with margins
+_panel_depth = 1.0;                   // recess depth (mm)
+_text_recess = 0.4;                   // text cut depth below panel floor (mm)
+
+// Panel is centred horizontally and vertically within the straight-wall zone
+_panel_cx = tray_width / 2;
+_panel_bz  = floor_thickness + (_label_zone_h - _panel_h) / 2;
+_panel_cz  = _panel_bz + _panel_h / 2;
+
+echo(str("Domino: ", _label_name));
 echo(str("Tray (W x D x H): ", tray_width, " x ", tray_depth, " x ", tray_height, " mm"));
 echo(str("Hole depth: ", hole_depth, " mm  (", hole_depth_ratio*100, "% of tenon length)"));
-echo(str("Grid: ", cols, " cols x ", rows, " rows  = ", cols*rows, " tenons"));
+echo(str("Grid: ", cols, " cols x ", rows, " rows  =  ", cols*rows, " tenons"));
 
 // --- Modules ---
 
-// Solid rectangular box with a rounded-over top edge and sharp bottom edges.
-// Achieved with hull() of a bottom face and four corner spheres at the top.
+// Solid rectangular box with rounded top edges and sharp bottom edges.
+// Uses hull() of a full-width bottom face and four corner spheres at the top.
 module tray_body(w, d, h, r) {
     hull() {
-        // Full-width bottom face - keeps the bottom edges sharp
+        // Full-width bottom face keeps the bottom edges sharp and flat
         cube([w, d, 0.01]);
-        // Corner spheres inset by r at the top - create the rounded top edges
+        // Corner spheres inset by r generate the rounded top edges
         for (cx = [r, w-r], cy = [r, d-r]) {
             translate([cx, cy, h-r])
                 sphere(r=r, $fn=64);
@@ -82,8 +112,8 @@ module tray_body(w, d, h, r) {
     }
 }
 
-// Oval (oblong) hole with the long axis along X, short axis along Y.
-// Built as the hull of two cylinders.
+// Oval (oblong) hole: long axis along X, short axis along Y.
+// Built as hull() of two cylinders.
 module oval_hole(long_axis, short_axis, depth) {
     r      = short_axis / 2;
     offset = (long_axis - short_axis) / 2;
@@ -91,6 +121,27 @@ module oval_hole(long_axis, short_axis, depth) {
         translate([-offset, 0, 0]) cylinder(h=depth, r=r, $fn=32);
         translate([ offset, 0, 0]) cylinder(h=depth, r=r, $fn=32);
     }
+}
+
+// Debossed label panel on the front face (Y=0).
+// rotate([90,0,0]) maps the text XY plane so:
+//   - baseline runs along +X (left-to-right when viewed from outside)
+//   - height runs along +Z (upright)
+//   - extrusion direction is -Y (cuts into the wall)
+module label_panel() {
+    // Outer panel recess - shallow rectangular pocket
+    translate([_panel_cx - _panel_w/2, -0.01, _panel_bz])
+        cube([_panel_w, _panel_depth + 0.01, _panel_h]);
+
+    // Text debossed into the panel floor
+    translate([_panel_cx, _panel_depth + _text_recess, _panel_cz])
+        rotate([90, 0, 0])
+            linear_extrude(height = _text_recess + 0.01)
+                text(_label_name,
+                     size   = _text_size,
+                     halign = "center",
+                     valign = "center",
+                     font   = "Liberation Sans:style=Bold");
 }
 
 // --- Main tray ---
@@ -104,4 +155,7 @@ difference() {
         translate([x, y, floor_thickness])
             oval_hole(hole_long, hole_short, hole_depth + 0.01); // +0.01 avoids z-fighting at floor
     }
+
+    // Optional front-face label panel
+    if (show_label) label_panel();
 }
